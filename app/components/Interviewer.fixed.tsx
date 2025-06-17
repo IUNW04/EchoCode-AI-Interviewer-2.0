@@ -24,15 +24,34 @@ export default function Interviewer({
     speechRecognition: false
   });
 
-  // Check browser support
+  // Check browser support and request microphone permission
   useEffect(() => {
     const speechSynthesis = 'speechSynthesis' in window;
-    const speechRecognition = 'SpeechRecognition' in window || 'webkitSpeechRecognition' in window;
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const speechRecognition = !!SpeechRecognition;
     
     setBrowserSupport({
       speechSynthesis,
       speechRecognition
     });
+
+    // Request microphone permission immediately
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(() => console.log('Microphone access granted'))
+        .catch(err => console.error('Microphone access denied:', err));
+    }
+
+    // Initialize audio context to prevent browser autoplay issues
+    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+    if (AudioContext) {
+      const audioContext = new AudioContext();
+      if (audioContext.state === 'suspended') {
+        audioContext.resume().then(() => {
+          console.log('Audio context resumed');
+        });
+      }
+    }
 
     if (speechSynthesis) {
       speechSynthesisRef.current = window.speechSynthesis;
@@ -41,14 +60,35 @@ export default function Interviewer({
       const loadVoices = () => {
         if (speechSynthesisRef.current) {
           const voices = speechSynthesisRef.current.getVoices();
-          console.log('Available voices:', voices);
+          console.log('Available voices:', voices.map((v: any) => ({
+            name: v.name,
+            lang: v.lang,
+            voiceURI: v.voiceURI,
+            default: v.default
+          })));
+          
+          // Try to select a default voice if none is selected
+          if (voices.length > 0) {
+            const defaultVoice = voices.find((v: any) => v.default) || voices[0];
+            console.log('Default voice:', defaultVoice);
+          }
         }
       };
       
       speechSynthesisRef.current.onvoiceschanged = loadVoices;
       loadVoices();
       
+      // Force voice loading in Chrome
+      const checkVoices = setInterval(() => {
+        const voices = speechSynthesisRef.current?.getVoices() || [];
+        if (voices.length > 0) {
+          loadVoices();
+          clearInterval(checkVoices);
+        }
+      }, 100);
+      
       return () => {
+        clearInterval(checkVoices);
         if (speechSynthesisRef.current) {
           speechSynthesisRef.current.cancel();
           speechSynthesisRef.current.onvoiceschanged = null;
@@ -60,129 +100,66 @@ export default function Interviewer({
   // Handle speaking the AI response
   useEffect(() => {
     if (response && !isRecording) {
+      console.log('New response to speak:', response);
       speakResponse(response);
     }
   }, [response, isRecording]);
 
   const speakResponse = useCallback((text: string) => {
-    if (!text.trim() || !browserSupport.speechSynthesis) {
-      console.log('Speech synthesis not available or no text to speak');
+    if (!text.trim()) {
+      console.log('No text to speak');
       return;
     }
     
-    const speak = () => {
-      try {
-        if (!speechSynthesisRef.current) {
-          console.log('Speech synthesis not initialized');
-          return;
-        }
-        
-        console.log('Attempting to speak text:', text);
-        
-        // Stop any ongoing speech
-        speechSynthesisRef.current.cancel();
-        
-        // Create a new utterance
-        const utterance = new SpeechSynthesisUtterance(text);
-        
-        // Configure utterance
-        utterance.rate = 0.9; // Slightly slower for better clarity
-        utterance.pitch = 1.0;
-        utterance.volume = 1.0; // Ensure volume is at maximum
-        
-        // Set up event handlers
-        utterance.onstart = () => {
-          console.log('Speech started');
-          setIsSpeaking(true);
-        };
-        
-        utterance.onend = () => {
-          console.log('Speech ended');
-          setIsSpeaking(false);
-        };
-        
-        utterance.onerror = (event) => {
-          console.error('Speech error:', event);
-          setIsSpeaking(false);
-        };
-        
-        utterance.onboundary = (event) => {
-          console.log('Speech boundary:', event);
-        };
-
-        // Get available voices
-        const voices = speechSynthesisRef.current.getVoices();
-        console.log('Available voices:', voices);
-        
-        if (voices.length > 0) {
-          // Try to find a good voice (less restrictive filter)
-          let voice = voices.find(v => v.lang.startsWith('en'));
-          
-          if (!voice) {
-            // Fallback to any available voice
-            voice = voices[0];
-          }
-          
-          if (voice) {
-            console.log('Using voice:', voice.name, voice.lang, voice.voiceURI);
-            utterance.voice = voice;
-          }
-        } else {
-          console.log('No voices available, using default');
-        }
-
-        // Add a small delay to ensure the speechSynthesis is ready
-        setTimeout(() => {
-          try {
-            speechSynthesisRef.current?.speak(utterance);
-            console.log('Speech synthesis started');
-          } catch (err) {
-            console.error('Error starting speech synthesis:', err);
-            setIsSpeaking(false);
-          }
-        }, 100);
-        
-      } catch (error) {
-        console.error('Error in speakResponse:', error);
-        setIsSpeaking(false);
-      }
-    };
-    
-    // Check if we need to wait for voices to be loaded
-    const checkVoices = () => {
-      const voices = speechSynthesisRef.current?.getVoices() || [];
-      if (voices.length > 0) {
-        speak();
-      } else {
-        console.log('Waiting for voices to load...');
-        // Try again after a short delay
-        setTimeout(() => {
-          const voices = speechSynthesisRef.current?.getVoices() || [];
-          if (voices.length > 0) {
-            speak();
-          } else {
-            console.log('No voices available after waiting');
-            setIsSpeaking(false);
-          }
-        }, 1000);
-      }
-    };
-    
-    // Check if we're in a user gesture context (required by some browsers)
-    if (document.readyState === 'complete') {
-      // Some browsers need a small delay before speaking
-      setTimeout(checkVoices, 100);
-    } else {
-      window.addEventListener('load', () => {
-        setTimeout(checkVoices, 100);
-      });
+    if (!speechSynthesisRef.current) {
+      console.error('Speech synthesis not available');
+      return;
     }
-  }, [browserSupport.speechSynthesis]);
+    
+    console.log('Attempting to speak text:', text);
+    
+    // Stop any ongoing speech
+    speechSynthesisRef.current.cancel();
+    
+    // Create a new utterance
+    const utterance = new SpeechSynthesisUtterance(text);
+    
+    // Configure utterance
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    utterance.volume = 1.0;
+    
+    // Set up event handlers
+    utterance.onstart = () => {
+      console.log('Speech started');
+      setIsSpeaking(true);
+    };
+    
+    utterance.onend = () => {
+      console.log('Speech ended');
+      setIsSpeaking(false);
+    };
+    
+    utterance.onerror = (event) => {
+      console.error('Speech error:', event);
+      setIsSpeaking(false);
+    };
+    
+    // Try to speak immediately
+    try {
+      speechSynthesisRef.current.speak(utterance);
+      console.log('Speech synthesis started');
+    } catch (err) {
+      console.error('Error starting speech synthesis:', err);
+      setIsSpeaking(false);
+    }
+  }, []);
 
   const stopListening = useCallback(() => {
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
+        console.log('Stopped speech recognition');
       } catch (error) {
         console.error('Error stopping recognition:', error);
       }
@@ -191,19 +168,18 @@ export default function Interviewer({
   }, []);
 
   const startListening = useCallback(() => {
-    if (!browserSupport.speechRecognition) {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    
+    if (!SpeechRecognition) {
       console.error('Speech recognition not supported in this browser');
       return;
     }
 
     try {
-      // Initialize with proper type checking
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (!SpeechRecognition) {
-        console.error('Speech recognition not available');
-        return;
-      }
-
+      // Stop any existing recognition
+      stopListening();
+      
+      // Create new recognition instance
       const recognition = new SpeechRecognition();
       recognitionRef.current = recognition;
       
@@ -223,9 +199,10 @@ export default function Interviewer({
           .map((result: any) => result[0]?.transcript || '')
           .join(' ');
         
+        console.log('Speech recognition result:', transcript);
         setSpeechText(transcript);
         
-        // Only send final results to parent
+        // Send final results to parent
         if (event.results[0]?.isFinal) {
           onUserSpeech(transcript);
         }
@@ -246,22 +223,26 @@ export default function Interviewer({
       };
       
       // Start listening
+      console.log('Starting speech recognition...');
       recognition.start();
       
     } catch (error) {
       console.error('Error starting speech recognition:', error);
     }
-  }, [browserSupport.speechRecognition, onUserSpeech, stopListening]);
+  }, [onUserSpeech, stopListening]);
 
   // Handle recording state changes
   useEffect(() => {
     if (isRecording) {
+      console.log('Starting listening...');
       startListening();
     } else {
+      console.log('Stopping listening...');
       stopListening();
     }
 
     return () => {
+      console.log('Cleaning up...');
       stopListening();
     };
   }, [isRecording, startListening, stopListening]);
@@ -270,6 +251,8 @@ export default function Interviewer({
     return (
       <div className="p-4 bg-yellow-100 text-yellow-800 rounded-lg">
         <p>Your browser has limited support for speech features. For best experience, use the latest version of Chrome or Edge.</p>
+        <p>Speech Synthesis: {browserSupport.speechSynthesis ? '✅ Supported' : '❌ Not Supported'}</p>
+        <p>Speech Recognition: {browserSupport.speechRecognition ? '✅ Supported' : '❌ Not Supported'}</p>
       </div>
     );
   }
@@ -292,6 +275,12 @@ export default function Interviewer({
           {isRecording ? 'Stop Recording' : 'Start Recording'}
           {isSpeaking && ' (Speaking...)'}
         </button>
+        
+        {/* Debug info */}
+        <div className="mt-4 text-xs text-gray-400">
+          <p>Status: {isRecording ? 'Recording...' : 'Ready'}</p>
+          <p>Speaking: {isSpeaking ? 'Yes' : 'No'}</p>
+        </div>
       </div>
     </div>
   );

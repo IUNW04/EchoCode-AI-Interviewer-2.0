@@ -2,6 +2,205 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Remove all outlines and borders */
+* {
+  outline: none !important;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Remove focus styles */
+*:focus, *:focus-visible, *:focus-within {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Remove default button styles */
+button, [type='button'], [type='reset'], [type='submit'] {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+/* Remove input outlines */
+input:focus, textarea:focus, select:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #3b82f6;
+  border-radius: 2px;
+}
+
+/* Message bubbles */
+.message-bubble {
+  max-width: 85%;
+  padding: 0.75rem 1rem;
+  border-radius: 1rem;
+  margin-bottom: 0.5rem;
+  line-height: 1.4;
+  position: relative;
+  word-break: break-word;
+}
+
+.message-bubble.user {
+  background: #3b82f6;
+  color: white;
+  border-top-right-radius: 0.25rem;
+  margin-left: auto;
+  border: none;
+}
+
+.message-bubble.ai {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  border-top-left-radius: 0.25rem;
+  margin-right: auto;
+  border: none;
+}
+
+/* Recording button */
+.record-button {
+  transition: all 0.2s ease;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.record-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.record-button.recording {
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+  }
+}
+
+/* Custom scrollbar */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Remove focus outlines but keep accessibility */
+*:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Glass effect for cards */
+.glass-card {
+  background: rgba(30, 30, 30, 0.7) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.75rem;
+}
+
+/* Message bubbles */
+.message-bubble {
+  max-width: 75%;
+  padding: 0.75rem 1rem;
+  border-radius: 1rem;
+  margin-bottom: 0.5rem;
+  line-height: 1.4;
+}
+
+.message-bubble.user {
+  background: #3b82f6;
+  color: white;
+  border-top-right-radius: 0.25rem;
+  margin-left: auto;
+}
+
+.message-bubble.ai {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  border-top-left-radius: 0.25rem;
+  margin-right: auto;
+}
+
+/* Recording button */
+.record-button {
+  transition: all 0.2s ease;
+}
+
+.record-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.record-button.recording {
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+  }
+}
+
+:root {
+  --bg-gradient-start: #0f172a;
+  --bg-gradient-end: #1e1b4b;
+  --accent-primary: #06b6d4;
+  --accent-secondary: #3b82f6;
+  --text-primary: #e2e8f0;
+  --card-bg: rgba(15, 23, 42, 0.9);
+}
+
+body {
+  @apply bg-gradient-to-br from-[var(--bg-gradient-start)] to-[var(--bg-gradient-end)] text-[var(--text-primary)] min-h-screen;
+  background-attachment: fixed;
+}
+
+.glass-card {
+  @apply bg-[var(--card-bg)] backdrop-blur-lg rounded-xl border border-white/10 shadow-xl;
+}
+
+.gradient-text {
+  @apply bg-clip-text text-transparent bg-gradient-to-r from-[var(--accent-primary)] to-[var(--accent-secondary)];
+}
+
+.btn-primary {
+  @apply bg-gradient-to-r from-[var(--accent-primary)] to-[var(--accent-secondary)] text-white px-4 py-2 rounded-lg font-medium hover:opacity-90 transition-opacity;
+}
+
 @layer base {
   :root {
     --background: 0 0% 100%;

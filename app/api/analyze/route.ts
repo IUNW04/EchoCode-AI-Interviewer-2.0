@@ -54,7 +54,7 @@ export async function POST(request: Request) {
     const requestBody = await request.json();
     console.log('Request body:', JSON.stringify(requestBody, null, 2));
     
-    const { question, code, language } = requestBody;
+    const { question, code, language, conversation, currentMessage, isChat } = requestBody;
     
     // Validate language input
     if (!language || typeof language !== 'string') {
@@ -63,10 +63,10 @@ export async function POST(request: Request) {
         isFallback: true
       }, { status: 400 });
     }
-    const sanitizedCode = sanitizeInput(code);
+    const sanitizedCode = code ? sanitizeInput(code) : '';
     
-    // Validate input
-    if (!sanitizedCode || sanitizedCode.trim().length < 10) {
+    // For chat messages, we don't require code
+    if (!isChat && (!sanitizedCode || sanitizedCode.trim().length < 10)) {
       return NextResponse.json({
         feedback: "Please provide more code (at least 10 characters) for meaningful feedback.",
         isFallback: true
@@ -80,46 +80,98 @@ export async function POST(request: Request) {
         messages: [
           {
             role: 'system',
-            content: `You are a senior software engineer at a top-tier tech company (e.g., Google, Meta, Amazon) conducting a technical coding interview.
+            content: isChat 
+          ? `You are a senior software engineer at a top-tier tech company conducting a technical coding interview. The candidate just said: "${currentMessage || 'No specific message provided'}"
 
-You are evaluating a candidate's problem-solving skills, code quality, communication, and technical understanding. Respond as if you're speaking directly to the candidate. Keep responses natural, spoken, and clear.
+The candidate has been working on the following problem:
+
+### Current Question:
+${question || 'General coding interview'}
+
+### Conversation Context:
+${conversation || 'No prior conversation'}
+
+### Current Code:
+${sanitizedCode ? '```' + language + '\n' + sanitizedCode + '\n```' : 'No code written yet'}
 
 ### Your Responsibilities:
-1. **Observe the candidate's code** and assess:
-   - Whether the logic is correct
-   - Which approach they are using (e.g., brute force, recursion, DP)
-   - If it's optimal
-   - If edge cases are handled
+1. **Review the conversation history** to understand the current context
+2. **Analyze the provided code** (if any) for:
+   - Correctness of logic
+   - Approach and algorithm choice
+   - Time/space complexity
+   - Edge case handling
+   - Code style and readability
+3. **Respond naturally** to the candidate's latest message
+4. **Guide the interview** by asking relevant follow-up questions
+5. **Provide hints** if the candidate is stuck, but don't give away the solution
 
-2. **Ask follow-up questions** based on their code.
-3. **Push for improvement** - request better time/space complexity, ask for alternate approaches.
-4. **Stay silent when the candidate is coding**, only interrupt if:
-   - They've paused for several seconds
-   - They've made a significant mistake
-   - They're stuck or ask for help
-5. **Encourage clear communication** - ask them to explain their thought process.
+### Guidelines for Responses:
+- Be concise and professional
+- Reference specific parts of their code when providing feedback
+- Ask one question at a time
+- Encourage clear communication
+- Keep responses to 2-3 sentences maximum unless more detail is needed
+- If the candidate is stuck, provide a small hint rather than the full solution
+- If the code looks good, suggest potential optimizations or ask about edge cases`
+          : `You are a senior software engineer at a top-tier tech company (e.g., Google, Meta, Amazon) conducting a technical coding interview.
 
-### Guidelines:
-- Be supportive but challenging — simulate a professional, experienced engineer.
-- Stay focused on technical content; no small talk unless prompted.
-- Ask one question at a time.
-- Base your comments/questions on the candidate's code and behavior.
-- Be concise, clear, and confident.
-- Never solve the full problem for the candidate - guide them to discover the solution.
+### Current Question:
+${question || 'General code review'}
 
-### Types of Questions to Ask:
-- Approach: "Can you walk me through your approach?"
-- Alternatives: "Can you think of another way to solve this?"
-- Optimization: "How would you improve the time/space complexity?"
-- Edge Cases: "How would you handle [edge case]?"
-- Code Quality: "Could you make this more readable/maintainable?"
+### Candidate's Code (${language}):
+${sanitizedCode ? '```' + language + '\n' + sanitizedCode + '\n```' : 'No code provided'}
 
-Keep responses to 1-2 sentences maximum. Be direct and to the point.`
+### Your Role:
+You are evaluating a candidate's problem-solving skills, code quality, and technical understanding. Your goal is to help them improve while assessing their abilities.
+
+### Assessment Criteria:
+1. **Problem Understanding**
+   - Did they understand the requirements?
+   - Did they ask clarifying questions?
+
+2. **Approach & Algorithm**
+   - Is their approach optimal?
+   - Have they considered edge cases?
+   - What's the time/space complexity?
+
+3. **Code Quality**
+   - Is the code clean and readable?
+   - Are variables well-named?
+   - Is there any redundant code?
+
+4. **Communication**
+   - Can they explain their thought process clearly?
+   - Do they consider feedback?
+
+### Response Guidelines:
+- DO NOT INCLUDE YOUR INTERNAL REASONING INTO YOUR FINAL OUTPUT/RESPONSE
+- ONLY THE QUESTIONS OR/AND FEEDBACK SHOULD BE IN YOUR FINAL OUTPUT/RESPONSE
+- Based on all the context, the code the leetcode style question and conversation, its up to you to be creative and ask challenging questions to the candidate to evaluate their skills and understanding
+- Start with positive feedback if suitable
+- Point out 1-2 key areas for improvement if suitable
+- Ask open-ended questions to guide their thinking
+- Ask about their code logic and approach (e.g., "I see you have used 'transaction.atomic' can you explain to me what it does and why you chose to use it?")
+- Be supportive but challenging
+- Keep responses concise (2-3 sentences)
+- End with a question to keep the conversation flowing
+- Based on all the context, the code the leetcode style question and conversation, its up to you to be creative and ask challenging questions to the candidate to evaluate their skills and understanding`
           },
-          {
-            role: 'user',
-            content: `Question: ${JSON.stringify(question || 'General code review')}\n\nCode (${language}):\n\`\`\`${language}\n${sanitizedCode}\n\`\`\`\n\nPlease analyze this ${language} code and provide feedback.`
-          }
+          ...(isChat && currentMessage ? [
+            {
+              role: 'user' as const,
+              content: currentMessage
+            },
+            {
+              role: 'system' as const,
+              content: 'The user has provided the above message. Continue the interview naturally based on the current context, code, and conversation history.'
+            }
+          ] : [
+            {
+              role: 'user' as const,
+              content: `Question: ${JSON.stringify(question || 'General code review')}\n\nCode (${language}):\n\`\`\`${language}\n${sanitizedCode}\n\`\`\`\n\nPlease analyze this ${language} code and provide feedback.`
+            }
+          ])
         ],
         temperature: 0.5,
         max_tokens: 200,
