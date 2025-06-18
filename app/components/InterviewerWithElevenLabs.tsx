@@ -110,7 +110,7 @@ const InterviewerWithElevenLabs: React.FC<InterviewerProps> = ({
 
     // Initial greeting
     setMessages([{
-      text: "Hello! I'm your AI interviewer. I'll ask you coding questions and provide feedback on your solutions. Let's get started!",
+      text: "Hello! I'm your AI interviewer. I'll ask you questions as you write your code to test your skills and understanding. I will also challenge your approaches and provide feedback on your solutions. Let's get started!",
       isUser: false,
       timestamp: new Date()
     }]);

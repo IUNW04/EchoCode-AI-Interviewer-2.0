@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import rateLimit from '@/lib/rateLimit';
-import FallbackAnalyzer from '@/lib/fallbackAnalyzer';
+import FallbackAnalyzer from '@/src/lib/fallbackAnalyzer';
 
 // Debug logging
 console.log('Analyze route loaded - imports successful');
@@ -16,7 +16,7 @@ const openai = new OpenAI({
     "HTTP-Referer": "https://codeecho-ai.vercel.app",
     "X-Title": "CodeEcho AI"
   },
-  timeout: 10000, // 10 second timeout
+  timeout: 25000, // 10 second timeout
   maxRetries: 1
 });
 
@@ -75,216 +75,202 @@ export async function POST(request: Request) {
 
     try {
       console.log('Sending request to OpenRouter...');
-      const response = await openai.chat.completions.create({
-        model: "deepseek/deepseek-r1:free",
-        messages: [
-          {
-            role: 'system',
-            content: isChat 
-          ? `You are a senior software engineer at a top-tier tech company conducting a technical coding interview. The candidate just said: "${currentMessage || 'No specific message provided'}"
-
-The candidate has been working on the following problem:
-
-### Current Question:
-${question || 'General coding interview'}
-
-### Conversation Context:
-${conversation || 'No prior conversation'}
-
-### Current Code:
-${sanitizedCode ? '```' + language + '\n' + sanitizedCode + '\n```' : 'No code written yet'}
-
-### Your Responsibilities:
-1. **Review the conversation history** to understand the current context
-2. **Analyze the provided code** (if any) for:
-   - Correctness of logic
-   - Approach and algorithm choice
-   - Time/space complexity
-   - Edge case handling
-   - Code style and readability
-3. **Respond naturally** to the candidate's latest message
-4. **Guide the interview** by asking relevant follow-up questions
-5. **Provide hints** if the candidate is stuck, but don't give away the solution
-
-### Guidelines for Responses:
-- Be concise and professional
-- Reference specific parts of their code when providing feedback
-- Ask one question at a time
-- Encourage clear communication
-- Keep responses to 2-3 sentences maximum unless more detail is needed
-- If the candidate is stuck, provide a small hint rather than the full solution
-- If the code looks good, suggest potential optimizations or ask about edge cases`
-          : `You are a senior software engineer at a top-tier tech company (e.g., Google, Meta, Amazon) conducting a technical coding interview.
-
-### Current Question:
-${question || 'General code review'}
-
-### Candidate's Code (${language}):
-${sanitizedCode ? '```' + language + '\n' + sanitizedCode + '\n```' : 'No code provided'}
-
-### Your Role:
-You are evaluating a candidate's problem-solving skills, code quality, and technical understanding. Your goal is to help them improve while assessing their abilities.
-
-### Assessment Criteria:
-1. **Problem Understanding**
-   - Did they understand the requirements?
-   - Did they ask clarifying questions?
-
-2. **Approach & Algorithm**
-   - Is their approach optimal?
-   - Have they considered edge cases?
-   - What's the time/space complexity?
-
-3. **Code Quality**
-   - Is the code clean and readable?
-   - Are variables well-named?
-   - Is there any redundant code?
-
-4. **Communication**
-   - Can they explain their thought process clearly?
-   - Do they consider feedback?
-
-### Response Guidelines:
-- DO NOT INCLUDE YOUR INTERNAL REASONING INTO YOUR FINAL OUTPUT/RESPONSE
-- ONLY THE QUESTIONS OR/AND FEEDBACK SHOULD BE IN YOUR FINAL OUTPUT/RESPONSE
-- Based on all the context, the code the leetcode style question and conversation, its up to you to be creative and ask challenging questions to the candidate to evaluate their skills and understanding
-- Start with positive feedback if suitable
-- Point out 1-2 key areas for improvement if suitable
-- Ask open-ended questions to guide their thinking
-- Ask about their code logic and approach (e.g., "I see you have used 'transaction.atomic' can you explain to me what it does and why you chose to use it?")
-- Be supportive but challenging
-- Keep responses concise (2-3 sentences)
-- End with a question to keep the conversation flowing
-- Based on all the context, the code the leetcode style question and conversation, its up to you to be creative and ask challenging questions to the candidate to evaluate their skills and understanding`
-          },
-          ...(isChat && currentMessage ? [
-            {
-              role: 'user' as const,
-              content: currentMessage
-            },
-            {
-              role: 'system' as const,
-              content: 'The user has provided the above message. Continue the interview naturally based on the current context, code, and conversation history.'
-            }
-          ] : [
-            {
-              role: 'user' as const,
-              content: `Question: ${JSON.stringify(question || 'General code review')}\n\nCode (${language}):\n\`\`\`${language}\n${sanitizedCode}\n\`\`\`\n\nPlease analyze this ${language} code and provide feedback.`
-            }
-          ])
-        ],
-        temperature: 0.5,
-        max_tokens: 200,
-        stream: false,
-        response_format: { type: 'text' }
-      });
-
-      console.log('OpenRouter response:', JSON.stringify(response, null, 2));
+      let response;
+      let timeout: NodeJS.Timeout | undefined;
       
-      let feedback = '';
-      const message = response.choices?.[0]?.message as any; // Using 'any' to handle custom response format
-      
-      // Extract feedback from the most appropriate field
-      if (message?.content) {
-        feedback = message.content.trim();
-      } else if (message?.reasoning) {
-        // Some models (like DeepSeek) return analysis in the reasoning field
-        feedback = message.reasoning.trim();
-      } else {
-        console.error('Unexpected response format:', JSON.stringify(response, null, 2));
-        throw new Error('Could not extract feedback from AI response');
-      }
-      
-      // If no content in the main response, try to extract a clean response from reasoning
-      if ((!feedback || feedback.length < 10) && message?.reasoning) {
-        // Look for the final response in the reasoning (after any internal notes)
-        const reasoning = message.reasoning;
-        // Try to find the final response after any internal notes
-        const finalResponseMatch = reasoning.match(/final response:[\s\n]*(.*?)(?:\n\n|$)/i);
-        if (finalResponseMatch && finalResponseMatch[1]) {
-          feedback = finalResponseMatch[1].trim();
-        } else {
-          // If no final response marker, extract the last complete sentence
-          const lines = reasoning.split('\n').filter((line: string) => line.trim().length > 0);
-          feedback = (lines[lines.length - 1] || '').replace(/^\s*[\-•*]\s*/, '').trim();
-        }
-      }
-      
-      // Clean up the feedback
-      feedback = feedback
-        // Remove any markdown code blocks
-        .replace(/```[\s\S]*?```/g, '')
-        // Remove any remaining backticks or markdown formatting
-        .replace(/[`*_~]/g, '')
-        // Remove any HTML tags
-        .replace(/<[^>]*>/g, '')
-        // Replace multiple newlines or spaces with a single space
-        .replace(/\s+/g, ' ')
-        // Remove any leading numbers or bullet points
-        .replace(/^\s*[0-9]+\.?\s*|^\s*[\-•*]\s*/, '')
-        // Trim whitespace
-        .trim();
-
-      // If we still don't have good feedback, use the fallback analyzer
-      if (!feedback || feedback.length < 10) {
-        throw new Error('No valid feedback could be generated');
-      }
-      
-      // Ensure the feedback is a complete thought
-      const sentences = (feedback.match(/[^.!?]+[.!?]+/g) || [])
-        .map(s => s.trim())
-        .filter(s => s.length > 0);
-      
-      if (sentences.length > 0) {
-        // Take the first complete sentence that has some substance
-        feedback = sentences[0];
-        
-        // If it's too short, try to include the next sentence
-        if (feedback.length < 20 && sentences.length > 1) {
-          feedback = `${feedback} ${sentences[1]}`.trim();
-        }
-      } else {
-        // If no complete sentences, take the first 100 characters and add an ellipsis
-        feedback = feedback.length > 100 
-          ? `${feedback.substring(0, 100).trim()}...` 
-          : feedback;
-      }
-
-      return NextResponse.json({
-        feedback: feedback,
-        isFallback: false
-      });
-      
-    } catch (aiError) {
-      console.error('AI analysis failed:', aiError);
-      // Use fallback analyzer when AI fails
       try {
-        const fallbackFeedback = FallbackAnalyzer.analyze(sanitizedCode);
+        // Make the API call with a timeout
+        const controller = new AbortController();
+        timeout = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+        
+        response = await openai.chat.completions.create({
+          model: 'deepseek/deepseek-chat',
+          messages: [
+            {
+              role: 'system',
+              content: `You are an expert AI coding interviewer whose sole purpose is to probe, challenge, and guide candidates through deep, technical questions about their code, design, and architecture. Follow these rules on every turn:
+
+Adopt a Conversational, Friendly Tone
+• Speak as if you're sitting beside the candidate—no robotic preambles ("As an AI...").
+• Use clear, precise language without markdown headings or generic phrases.
+Deliver In-Depth Analysis
+• Highlight both strengths and weaknesses in the candidate's solution.
+• Offer concrete observations about algorithm choices, data structures, scalability, edge cases, real‑world trade‑offs, and system implications.
+• Teach one nuanced lesson or pitfall each time.
+Always End with a Specific, Challenging Follow‑Up Question
+• Your last sentence must be a question that forces deeper thought on the candidate's code or approach.
+• Examples:
+– "I see you used @transaction.atomic around multiple updates—can you explain exactly what guarantees it provides and why you chose it here?"
+– "You've indexed on (user_id, created_at)—how would you modify your schema or query if you needed to sort by popularity instead?"
+• Never close without a question.
+Maintain Interview Flow
+• Do not reveal your internal reasoning.
+• Keep responses to at least five sentences, weaving critique with teaching.
+• Avoid bullet‑point fluff; blend observations into paragraphs.
+Adapt to Context
+• If the candidate asks about a specific line (e.g., "i see you used transaction atomic. can u explain what it does and why u chpse"), respond with a clear definition, the problem it solves, any pitfalls, and then pose a follow‑up question about alternative strategies or edge cases.
+
+Current Question:
+${question || 'General technical discussion'}
+
+Candidate's Code (${language}):
+${sanitizedCode ? sanitizedCode : 'No code provided'}
+
+Conversation History:
+${conversation || 'No conversation history yet.'}`
+            },
+            ...(isChat && currentMessage ? [
+              {
+                role: 'user' as const,
+                content: currentMessage
+              },
+              {
+                role: 'system' as const,
+                content: 'The user has provided the above message. Continue the interview naturally based on the current context, code, and conversation history.'
+              }
+            ] : [
+              {
+                role: 'user' as const,
+                content: `Question: ${JSON.stringify(question || 'General code review')}
+\nCode (${language}):\n${sanitizedCode}\n\nPlease analyze this ${language} code and provide feedback.`
+              }
+            ])
+          ],
+          temperature: 0.7,
+          max_tokens: 500,
+          stream: false,
+          response_format: { type: 'text' }
+        }, { signal: controller.signal });
+        
+        clearTimeout(timeout);
+        console.log('OpenRouter API call successful');
+
+        let feedback = '';
+        const message = response.choices?.[0]?.message;
+        
+        if (!message) {
+          console.error('No message in response, falling back to local analyzer');
+          throw new Error('No message in response');
+        }
+        
+        // Extract feedback from the most appropriate field
+        if (message.content) {
+          feedback = String(message.content).trim();
+        } else if ((message as any)?.reasoning) {
+          feedback = String((message as any).reasoning).trim();
+        } else {
+          console.error('Unexpected response format, falling back to local analyzer');
+          throw new Error('Unexpected response format');
+        }
+        
+        // Clean up the feedback
+        feedback = feedback
+          .replace(/```[\s\S]*?```/g, '')
+          .replace(/[`*_~]/g, '')
+          .replace(/<[^>]*>/g, '')
+          .replace(/\s+/g, ' ')
+          .replace(/^\s*[0-9]+\.?\s*|^\s*[\-•*]\s*/, '')
+          .trim();
+
+        // Post-processing: Ensure feedback ends with a question
+        if (!/[?？]\s*$/.test(feedback)) {
+          // Try to generate a context-aware question
+          let fallbackQuestion = '';
+          if (sanitizedCode && sanitizedCode.length > 0) {
+            // Try to extract a function or variable name from the code
+            const funcMatch = sanitizedCode.match(/def\s+([a-zA-Z0-9_]+)/) || sanitizedCode.match(/function\s+([a-zA-Z0-9_]+)/);
+            if (funcMatch && funcMatch[1]) {
+              fallbackQuestion = `Can you explain why you chose to implement the function '${funcMatch[1]}' in this way, and what trade-offs or alternatives you considered?`;
+            } else {
+              fallbackQuestion = 'What is a possible optimization or alternative approach you could try for this problem?';
+            }
+          } else if (question && question.title) {
+            fallbackQuestion = `What would you change in your approach if the problem statement for '${question.title}' was modified to include additional constraints?`;
+          } else {
+            fallbackQuestion = 'What is a possible optimization or alternative approach you could try for this problem?';
+          }
+          feedback = feedback.replace(/[.?!]*$/, ''); // Remove trailing punctuation
+          feedback += ' ' + fallbackQuestion;
+        }
+
+        // If we still don't have good feedback, use the fallback analyzer
+        if (!feedback || feedback.length < 10) {
+          throw new Error('No valid feedback could be generated');
+        }
+        
+        // Always return the full cleaned feedback
         return NextResponse.json({
-          feedback: fallbackFeedback || 
-            `I noticed some code that could use improvement. ${question ? `Make sure your solution addresses the question: ${typeof question === 'string' ? question : question.title || ''}` : ''}`,
-          isFallback: true
+          feedback: feedback,
+          isFallback: false
         });
-      } catch (fallbackError) {
-        console.error('Fallback analyzer failed:', fallbackError);
-        // Provide a helpful default message
-        return NextResponse.json({
-          feedback: "Looking good so far! Make sure your solution is complete and handles all edge cases.",
-          isFallback: true
-        });
+        
+      } catch (error: any) {
+        if (timeout !== undefined) clearTimeout(timeout);
+        console.error('Error calling OpenRouter API:', error);
+        
+        if (error.name === 'AbortError') {
+          throw new Error(`Request timed out after 30 seconds`);
+        } else if (error.status === 429) {
+          throw new Error('Rate limit exceeded. Please try again later.');
+        } else if (error.code === 'invalid_api_key') {
+          throw new Error('Invalid API key. Please check your configuration.');
+        } else {
+          throw new Error(`AI service error: ${error.message || 'Unknown error'}`);
+        }
       }
-    }  
-  } catch (error) {
-    console.error('Error in analyze route:', error);
-    return NextResponse.json(
-      { 
-        feedback: "I'm having trouble analyzing the code right now. Please try again in a moment.",
+      
+    } catch (error) {
+      console.error('Error in analyze API:', error);
+      console.log('Falling back to local analyzer');
+        
+        // Provide more specific error messages based on the error type
+        let errorMessage = 'An error occurred while analyzing your code';
+        let errorMsg = '';
+        if (typeof error === 'object' && error !== null && 'message' in error && typeof (error as any).message === 'string') {
+          errorMsg = (error as any).message;
+        }
+        if (errorMsg.includes('timed out')) {
+          errorMessage = 'The analysis took too long to complete';
+        } else if (errorMsg.includes('rate limit')) {
+          errorMessage = 'Rate limit exceeded. Please try again in a moment.';
+        } else if (errorMsg.includes('API key')) {
+          errorMessage = 'Configuration issue with the analysis service';
+        }
+        
+        console.log(`Error details: ${errorMsg}`);
+        
+        try {
+          const fallbackFeedback = FallbackAnalyzer.analyze(sanitizedCode);
+          return NextResponse.json({ 
+            feedback: fallbackFeedback || `I've reviewed your code. (${errorMessage})`,
+            isFallback: true,
+            error: errorMsg
+          });
+        } catch (fallbackError) {
+          console.error('Fallback analyzer failed:', fallbackError);
+          return NextResponse.json({
+            feedback: `I've reviewed your code. (${errorMessage})`,
+            isFallback: true,
+            error: errorMsg
+          });
+        }
+      }
+      
+    } catch (error) {
+      console.error('Error in analyze route:', error);
+      // Final fallback in case of unexpected errors
+      let errorMsg = '';
+      if (typeof error === 'object' && error !== null && 'message' in error && typeof (error as any).message === 'string') {
+        errorMsg = (error as any).message;
+      } else {
+        errorMsg = 'Unknown error';
+      }
+      return NextResponse.json({
+        feedback: "I'm having trouble analyzing your code right now. Please try again in a moment or ask me a specific question about your implementation.",
         isFallback: true,
-        error: 'analysis_failed'
-      },
-      { status: 500 }
-    );
-  }
+        error: errorMsg
+      }, { status: 500 });
+    }
 }
 
 // Add GET handler for testing

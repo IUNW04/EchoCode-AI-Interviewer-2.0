@@ -5,7 +5,7 @@ import './globals.css';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'CodeEcho AI - AI-Powered Coding Interview Simulator',
+  title: 'EchoCode AI - AI-Powered Coding Interview Simulator',
   description: 'Practice coding interviews with a real-time AI interviewer that provides voice-based feedback and suggestions.',
 };
 

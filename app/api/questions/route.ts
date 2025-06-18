@@ -57,14 +57,14 @@ export async function GET() {
       messages: [
         {
           role: "system",
-          content: "You are a helpful assistant that generates coding interview questions. Respond with a valid JSON object containing: title, description, and example (with input and output)."
+          content: "You are a helpful assistant that generates extremely hard, complex coding interview questions, similar to the hardest problems on LeetCode. Only generate problems that require advanced algorithms, data structures, or deep problem-solving skills. Do not generate simple or medium problems. Respond with a valid JSON object containing: title, description, and example (with input and output)."
         },
         {
           role: "user",
-          content: "Generate a simple coding question. Example response format: {\"title\":\"Question Title\",\"description\":\"Problem description\",\"example\":{\"input\":\"example input\",\"output\":\"example output\"}}"
+          content: "Generate a very hard, complex LeetCode-style coding question. Example response format: {\"title\":\"Question Title\",\"description\":\"Problem description\",\"example\":{\"input\":\"example input\",\"output\":\"example output\"}}"
         }
       ],
-      temperature: 0.3,
+      temperature: 0.7,
       max_tokens: 500,
       response_format: { type: "json_object" }
     });
