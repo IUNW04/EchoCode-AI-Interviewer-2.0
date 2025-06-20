@@ -83,9 +83,11 @@ export default function Home() {
       );
     } finally {
       setIsAnalyzing(false);
-      resetAnalysisTimer(); // Restart the timer after analysis
+      if (!isTTSPlaying) {
+        resetAnalysisTimer(); // Only restart the timer if TTS is not playing
+      }
     }
-  }, [code, currentQuestion, language, resetAnalysisTimer]);
+  }, [code, currentQuestion, language, resetAnalysisTimer, isTTSPlaying]);
 
   useEffect(() => {
     handleAnalysisRef.current = handleAnalysis;

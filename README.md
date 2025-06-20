@@ -4,21 +4,22 @@ An AI-powered coding interview simulator that replicates real FAANG-style techni
 
 ## Features
 
-- Voice-based interaction with AI interviewer
-- Real-time code observation and feedback
+- 2 way Voice-based interaction with AI interviewer
+- Real-time code observation and follow up questions/feedback generation
 - LeetCode-style coding questions
 - Monaco editor integration
-- Text-to-speech and speech-to-text capabilities
+-  Pinston API integration [soon]
+- Natural Voice/Text-to-speech and speech-to-text capabilities vis ElevenLabs API
 - FAANG-style interview simulation
 
 ## Tech Stack
 
-- Frontend: Next.js + Tailwind CSS
+- Stack: React, Typescript, Next.js, Node.js,  Tailwind CSS
 - Editor: Monaco Editor
-- Speech Recognition: Whisper.cpp
-- Text-to-Speech: Browser Web Speech API
-- LLM: DeepSeek Coder (via HuggingFace)
-- Questions: leetcode-mcp-server
+- Speech Recognition: Web speech API temporarily
+- Text-to-Speech: Elevenlabs API
+- LLM: DeepSeek R1 (via OpenRoter)
+- Questions: AII generated - leetcode style
 
 ## Getting Started
 

@@ -38,6 +38,12 @@ function extractJson(str: string): string | null {
     return match ? match[0] : null;
 }
 
+function sanitizeJsonString(str: string): string {
+  // Replace unescaped newlines and carriage returns inside string values with a space
+  // This is a simple but effective fix for most AI-generated JSON quirks
+  return str.replace(/\r?\n/g, ' ');
+}
+
 export async function GET() {
   // First, test the API key is working
   try {
@@ -66,7 +72,7 @@ export async function GET() {
         },
         {
             "role": "user",
-            "content": "Generate one very hard, LeetCode-style coding problem. The output MUST be a JSON object with three keys: \"title\" (string), \"description\" (string), and \"example\" (an object with \"input\" and \"output\" string keys)."
+            "content": "Generate a coding problem with a difficulty of 'Hard' on a platform like LeetCode or HackerRank. The problem should require understanding of complex algorithms (e.g., dynamic programming, graph traversal, advanced data structures) and not be a common, introductory-level problem like reversing words or FizzBuzz. The output MUST be a JSON object with three keys: \"title\" (string), \"description\" (string), and \"example\" (an object with \"input\" and \"output\" string keys)."
         }
       ],
       temperature: 0.7,
@@ -84,12 +90,30 @@ export async function GET() {
     const jsonContent = extractJson(rawContent);
 
     if (!jsonContent) {
-        throw new Error('No JSON object found in AI response');
+        // Fallback to local questions if no JSON object is found
+        const randomQuestion = fallbackQuestions[
+          Math.floor(Math.random() * fallbackQuestions.length)
+        ];
+        return NextResponse.json({ 
+          question: randomQuestion,
+          error: 'No JSON object found in AI response',
+          note: 'Falling back to local questions'
+        });
     }
 
     // Try to parse the response
     try {
-      const question = JSON.parse(jsonContent);
+      const sanitized = sanitizeJsonString(jsonContent);
+      const question = JSON.parse(sanitized);
+      // Clean up example fields if they are wrapped in extra quotes
+      if (question.example) {
+        if (typeof question.example.input === 'string') {
+          question.example.input = question.example.input.replace(/^"|"$/g, '');
+        }
+        if (typeof question.example.output === 'string') {
+          question.example.output = question.example.output.replace(/^"|"$/g, '');
+        }
+      }
       return NextResponse.json({ question });
     } catch (parseError) {
       console.error('Failed to parse extracted JSON:', parseError);

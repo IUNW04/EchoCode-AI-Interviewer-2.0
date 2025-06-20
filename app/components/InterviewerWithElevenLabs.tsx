@@ -2,6 +2,7 @@
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import ElevenLabsTTS from './ElevenLabsTTS';
+import ReactMarkdown from 'react-markdown';
 
 // Web Speech API types
 type SpeechRecognitionAlternative = {
@@ -130,11 +131,6 @@ const InterviewerWithElevenLabs: React.FC<InterviewerProps> = ({
     onSpeakingChange?.(speaking);
   }, [onSpeakingChange]);
 
-  // Format time for message timestamps
-  const formatTime = (date: Date): string => {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
-
   // Stop recording and cleanup
   const stopRecording = useCallback(() => {
     if (recognitionRef.current) {
@@ -142,6 +138,18 @@ const InterviewerWithElevenLabs: React.FC<InterviewerProps> = ({
     }
     isProcessingRef.current = false;
   }, []);
+
+  // Force stop recognition if TTS starts playing
+  useEffect(() => {
+    if (isSpeaking) {
+      stopRecording();
+    }
+  }, [isSpeaking, stopRecording]);
+
+  // Format time for message timestamps
+  const formatTime = (date: Date): string => {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
 
   // Update messages when response changes
   useEffect(() => {
@@ -340,14 +348,19 @@ const InterviewerWithElevenLabs: React.FC<InterviewerProps> = ({
       // Handle errors
       recognitionRef.current.onerror = (event: any) => {
         console.error('Speech recognition error event:', event);
-        let errorMessage = 'Speech recognition error';
+        let errorMessage = 'An unknown speech recognition error occurred.';
         
-        if (event.error === 'not-allowed') {
+        if (event.error === 'no-speech') {
+          errorMessage = "I didn't hear anything. Please try again.";
+        } else if (event.error === 'aborted') {
+          // This often happens when TTS starts, so we can ignore it or handle it silently
+          // as the new AI response is the more important state change.
+          console.log('Speech recognition aborted, likely by new TTS starting.');
+          return; // Exit without showing an error message
+        } else if (event.error === 'not-allowed') {
           errorMessage = 'Microphone access was denied. Please allow microphone access to use this feature.';
         } else if (event.error === 'audio-capture') {
           errorMessage = 'No microphone was found. Please ensure a microphone is connected.';
-        } else if (event.error === 'not-allowed') {
-          errorMessage = 'Microphone access is blocked. Please allow microphone access in your browser settings.';
         } else if (event.error) {
           errorMessage = `Speech recognition error: ${event.error}`;
         }
@@ -390,7 +403,7 @@ const InterviewerWithElevenLabs: React.FC<InterviewerProps> = ({
       isProcessingRef.current = false;
       // Clean up recognition reference
     }
-  }, [browserSupport.speechRecognition, onUserSpeech, stopRecording]);
+  }, [browserSupport.speechRecognition, onUserSpeech, stopRecording, createSpeechRecognition]);
 
   // Handle recording state changes
   useEffect(() => {
@@ -433,7 +446,13 @@ const InterviewerWithElevenLabs: React.FC<InterviewerProps> = ({
             className={`flex ${message.isUser ? 'justify-end' : 'justify-start'}`}
           >
             <div className={`message-bubble ${message.isUser ? 'user' : 'ai'}`}>
-              <div className="whitespace-pre-wrap">{message.text}</div>
+              {message.isUser ? (
+                <div className="whitespace-pre-wrap">{message.text}</div>
+              ) : (
+                <div className="prose prose-invert max-w-none">
+                  <ReactMarkdown>{message.text}</ReactMarkdown>
+                </div>
+              )}
               {!message.isUser && (
                 <ElevenLabsTTS
                   key={`tts-${index}`}
