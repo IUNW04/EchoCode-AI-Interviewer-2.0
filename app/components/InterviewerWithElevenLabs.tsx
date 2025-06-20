@@ -46,6 +46,7 @@ interface InterviewerProps {
   onRecord: () => void;
   onUserSpeech: (text: string) => void;
   elevenLabsApiKey?: string;
+  onSpeakingChange?: (isSpeaking: boolean) => void;
 }
 
 const InterviewerWithElevenLabs: React.FC<InterviewerProps> = ({
@@ -53,7 +54,8 @@ const InterviewerWithElevenLabs: React.FC<InterviewerProps> = ({
   isRecording,
   onRecord,
   onUserSpeech,
-  elevenLabsApiKey
+  elevenLabsApiKey,
+  onSpeakingChange
 }) => {
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
@@ -125,7 +127,8 @@ const InterviewerWithElevenLabs: React.FC<InterviewerProps> = ({
   // Handle speaking state changes from TTS
   const handleSpeakingChange = useCallback((speaking: boolean) => {
     setIsSpeaking(speaking);
-  }, []);
+    onSpeakingChange?.(speaking);
+  }, [onSpeakingChange]);
 
   // Format time for message timestamps
   const formatTime = (date: Date): string => {
@@ -435,7 +438,7 @@ const InterviewerWithElevenLabs: React.FC<InterviewerProps> = ({
                 <ElevenLabsTTS
                   key={`tts-${index}`}
                   text={message.text}
-                  onSpeakingChange={setIsSpeaking}
+                  onSpeakingChange={handleSpeakingChange}
                   onError={(error) => console.error('TTS Error:', error)}
                   apiKey={elevenLabsApiKey}
                 />

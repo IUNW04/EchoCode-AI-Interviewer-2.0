@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 
 import Editor from './components/Editor';
@@ -12,8 +12,114 @@ export default function Home() {
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
   const [code, setCode] = useState('');
   const [language, setLanguage] = useState('javascript');
-  const [isRecording, setIsRecording] = useState(false);
   const [interviewerResponse, setInterviewerResponse] = useState('');
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isTTSPlaying, setIsTTSPlaying] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [timer, setTimer] = useState(120);
+  const analysisTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const prevIsTTSPlayingRef = useRef<boolean>();
+
+  const isReadOnly = isAnalyzing || isTTSPlaying;
+
+  const handleAnalysisRef = useRef<() => Promise<void>>();
+
+  const resetAnalysisTimer = useCallback(() => {
+    if (analysisTimerRef.current) {
+      clearTimeout(analysisTimerRef.current);
+    }
+    if (countdownTimerRef.current) {
+      clearInterval(countdownTimerRef.current);
+    }
+    setTimer(120);
+
+    const newTimer = setTimeout(() => {
+      handleAnalysisRef.current?.();
+    }, 2 * 60 * 1000); // 2 minutes
+    analysisTimerRef.current = newTimer;
+
+    countdownTimerRef.current = setInterval(() => {
+      setTimer((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+  }, []);
+
+  const handleAnalysis = useCallback(async () => {
+    if (analysisTimerRef.current) {
+      clearTimeout(analysisTimerRef.current);
+    }
+    if(countdownTimerRef.current){
+      clearInterval(countdownTimerRef.current)
+    }
+
+    // Reset timer immediately when manually triggered
+    setTimer(120);
+
+    setIsAnalyzing(true);
+
+    try {
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: currentQuestion,
+          code: code,
+          language: language,
+        }),
+      });
+
+      const data = await response.json();
+      if (data.feedback) {
+        setInterviewerResponse(data.feedback);
+      }
+    } catch (error) {
+      console.error('Analysis error:', error);
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : 'An unknown error occurred';
+      setInterviewerResponse(
+        `I'm having trouble analyzing your code: ${errorMessage}. Please try again in a moment.`
+      );
+    } finally {
+      setIsAnalyzing(false);
+      resetAnalysisTimer(); // Restart the timer after analysis
+    }
+  }, [code, currentQuestion, language, resetAnalysisTimer]);
+
+  useEffect(() => {
+    handleAnalysisRef.current = handleAnalysis;
+  }, [handleAnalysis]);
+
+  useEffect(() => {
+    const prevIsTTSPlaying = prevIsTTSPlayingRef.current;
+
+    // When TTS starts speaking, pause the timer.
+    if (prevIsTTSPlaying === false && isTTSPlaying === true) {
+      if (countdownTimerRef.current) {
+        clearInterval(countdownTimerRef.current);
+      }
+    } 
+    // When TTS stops speaking, reset the timer.
+    else if (prevIsTTSPlaying === true && isTTSPlaying === false) {
+      resetAnalysisTimer();
+    }
+
+    // Keep track of the previous state for the next render.
+    prevIsTTSPlayingRef.current = isTTSPlaying;
+  }, [isTTSPlaying, resetAnalysisTimer]);
+
+  useEffect(() => {
+    resetAnalysisTimer();
+    return () => {
+      if (analysisTimerRef.current) {
+        clearTimeout(analysisTimerRef.current);
+      }
+      if (countdownTimerRef.current) {
+        clearInterval(countdownTimerRef.current);
+      }
+    };
+  }, [resetAnalysisTimer]);
 
   const fetchQuestion = async () => {
     try {
@@ -62,51 +168,7 @@ export default function Home() {
   // Handle code changes
   const handleCodeChange = (newCode: string) => {
     setCode(newCode);
-  };
-
-  // Debounced code analysis
-  useEffect(() => {
-    // Don't analyze if code is too short or no question is selected
-    if (!code.trim() || code.trim().length < 10 || !currentQuestion) {
-      return;
-    }
-
-    const delayDebounce = setTimeout(async () => {
-      try {
-        setInterviewerResponse(prev => prev === "Analyzing your code..." ? prev : "Analyzing your code...");
-        
-        const response = await fetch('/api/analyze', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            question: currentQuestion,
-            code: code,
-            language: language
-          })
-        });
-        
-        const data = await response.json();
-        if (data.feedback) {
-          setInterviewerResponse(data.feedback);
-        }
-      } catch (error: unknown) {
-        console.error('Analysis error:', error);
-        const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
-        setInterviewerResponse(`I'm having trouble analyzing your code: ${errorMessage}. Please try again in a moment.`);
-      }
-    }, 1500); // 1.5 second delay after typing stops
-
-    return () => clearTimeout(delayDebounce);
-  }, [code, currentQuestion]);
-
-  // Request code analysis
-  const requestCodeAnalysis = async () => {
-    if (!code.trim()) {
-      setInterviewerResponse("Please write some code before requesting feedback.");
-      return;
-    }
-    setInterviewerResponse("Analyzing your code...");
-    await analyzeCode(code);
+    resetAnalysisTimer(); // Reset timer on code change
   };
 
   // State to maintain conversation history
@@ -123,12 +185,7 @@ export default function Home() {
     const lowerText = text.toLowerCase();
     
     if (lowerText.includes('new question') || lowerText.includes('next question')) {
-      fetchQuestion()
-        .then(() => {
-          setCode('');
-          setInterviewerResponse('');
-          setConversationHistory([]);
-        });
+      handleAnalysis();
       return;
     } else if (lowerText.includes('clear') || lowerText.includes('reset')) {
       setCode('');
@@ -150,7 +207,7 @@ export default function Home() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          question: currentQuestion?.description || 'General coding interview',
+          question: currentQuestion,
           code: code,
           language: language,
           conversation: conversationContext,
@@ -187,7 +244,8 @@ export default function Home() {
       setInterviewerResponse("Please select a question first.");
       return;
     }
-
+    
+    setIsAnalyzing(true);
     try {
       console.log('Sending analysis request...');
       const response = await fetch('/api/analyze', {
@@ -224,11 +282,14 @@ export default function Home() {
       console.error('Error analyzing code:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to analyze code. Please try again.';
       setInterviewerResponse(`Error: ${errorMessage}`);
+    } finally {
+      setIsAnalyzing(false);
+      resetAnalysisTimer();
     }
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 p-6 overflow-hidden">
+    <main className="h-screen flex flex-col bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 overflow-hidden">
       {/* Floating Particles Background */}
       <div className="fixed inset-0 z-0">
         {[...Array(20)].map((_, i) => (
@@ -248,91 +309,75 @@ export default function Home() {
       </div>
 
       {/* Header */}
-      <header className="glass-card mb-6 p-4 flex justify-between items-center">
-        <div className="flex items-center space-x-2">
-          <div className="w-8 h-8 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-lg flex items-center justify-center">
-            <span className="text-white font-bold">EC</span>
-          </div>
-          <h1 className="text-2xl font-bold gradient-text">EchoCode AI</h1>
-        </div>
-        <div className="flex items-center space-x-4">
-          <button 
-            onClick={fetchQuestion}
-            className="btn-primary flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-cyan-500 text-white rounded-lg hover:opacity-90 transition-opacity"
-            disabled={isRecording}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M4 2a1 1 0 00-1 1v2.101a7.002 7.002 0 00-1 13.9V18a1 1 0 102 0v-1.007a7.001 7.001 0 000-13.786V3a1 1 0 00-1-1z" clipRule="evenodd" />
-            </svg>
-            <span>New Question</span>
-          </button>
-          <div className="flex items-center space-x-2 glass-card px-4 py-2 rounded-lg">
-            <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-            <span className="text-sm">AI Interviewer</span>
-          </div>
-          <button className="p-2 hover:bg-white/10 rounded-lg transition-colors">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-          </button>
-        </div>
+      <header className="relative z-10 flex justify-between items-center p-4 bg-gray-900/50 backdrop-blur-sm border-b border-white/10 flex-shrink-0">
+        <h1 className="text-2xl font-bold text-white tracking-wider">
+          EchoCode <span className="text-blue-400">AI</span>
+        </h1>
       </header>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col lg:flex-row gap-6 p-4" style={{ height: 'calc(100vh - 4rem)', overflow: 'hidden' }}>
-        {/* Question Panel */}
-        <div className="lg:w-1/4 flex-shrink-0 flex flex-col h-full overflow-hidden">
-          <div className="glass-card h-full flex flex-col">
-            <div className="p-4 border-b border-white/10 flex-shrink-0">
-              <h2 className="font-medium">Question</h2>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-grow flex flex-col lg:flex-row gap-6 p-6 min-h-0">
+        {/* Left Side: Question and Editor */}
+        <div className="lg:w-3/4 flex flex-col gap-6 h-full">
+          {/* Question Panel */}
+          <div className="glass-card flex flex-col flex-shrink-0" style={{ height: '30%' }}>
+            <div className="flex-1 overflow-y-auto">
               <QuestionPanel question={currentQuestion} onNewQuestion={fetchQuestion} />
             </div>
           </div>
-        </div>
 
-        {/* Code Editor */}
-        <div className="flex-1 flex flex-col min-w-0">
-          <div className="glass-card flex flex-col h-full">
-            <div className="p-4 border-b border-white/10 flex justify-between items-center">
-              <h2 className="font-medium flex items-center space-x-2">
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-                </svg>
-                <span>Code Editor</span>
-              </h2>
-              <LanguageSelector 
-                value={language}
-                onChange={setLanguage}
-              />
+          {/* Code Editor Panel */}
+          <div className="glass-card flex-1 flex flex-col min-h-0" style={{ height: '70%' }}>
+            <div className="p-4 border-b border-white/10 flex justify-between items-center flex-shrink-0">
+              <h2 className="font-medium">Code Editor</h2>
+              <LanguageSelector value={language} onChange={setLanguage} />
             </div>
             <div className="flex-1 min-h-0 relative">
-              <div className="absolute inset-0">
-                <Editor 
-                  code={code}
-                  onCodeChange={handleCodeChange}
-                  language={language}
-                  className="h-full w-full"
-                />
+              {isReadOnly && (
+                <div className="absolute inset-0 bg-black/50 z-10 flex items-center justify-center rounded-b-lg">
+                  <div className="text-white text-lg flex items-center">
+                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Analyzing...
+                  </div>
+                </div>
+              )}
+              <Editor
+                code={code}
+                onCodeChange={handleCodeChange}
+                language={language}
+                isReadOnly={isReadOnly}
+              />
+            </div>
+            <div className="p-2 border-t border-white/10 flex justify-end items-center flex-shrink-0">
+              <div className="text-sm text-gray-400 mr-4">
+                Auto-analysis in: {Math.floor(timer / 60)}:{(timer % 60).toString().padStart(2, '0')}
               </div>
+              <button
+                onClick={handleAnalysis}
+                disabled={isAnalyzing}
+                className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded disabled:bg-gray-500 transition-colors"
+              >
+                Interviewer's Question
+              </button>
             </div>
           </div>
         </div>
 
-        {/* AI Interviewer Panel */}
-        <div className="lg:w-1/4 flex-shrink-0 flex flex-col h-full overflow-hidden">
+        {/* Right Side: AI Interviewer */}
+        <div className="lg:w-1/4 flex flex-col h-full">
           <div className="glass-card h-full flex flex-col">
-            <div className="p-4 border-b border-white/10 flex-shrink-0">
+            <div className="p-4 border-b border-white/10">
               <h2 className="font-medium">AI Interviewer</h2>
             </div>
-            <div className="flex-1 min-h-0">
-              <Interviewer 
-                response={interviewerResponse} 
-                isRecording={isRecording} 
-                onRecord={() => setIsRecording(!isRecording)}
+            <div className="flex-1 overflow-y-auto p-4">
+              <Interviewer
+                response={interviewerResponse}
+                isRecording={isRecording}
+                onRecord={() => setIsRecording(prev => !prev)}
                 onUserSpeech={handleUserSpeech}
+                onSpeakingChange={setIsTTSPlaying}
                 elevenLabsApiKey={process.env.NEXT_PUBLIC_ELEVENLABS_API_KEY}
               />
             </div>
@@ -350,11 +395,12 @@ export default function Home() {
         }
         
         .glass-card {
-          background: transparent !important;
+          background: rgba(15, 23, 42, 0.6); /* semi-transparent slate-900 */
           border: 1px solid rgba(255, 255, 255, 0.1);
           border-radius: 0.75rem;
           position: relative;
           z-index: 1;
+          backdrop-filter: blur(10px);
         }
       `}</style>
     </main>

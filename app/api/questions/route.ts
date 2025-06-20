@@ -33,6 +33,11 @@ const fallbackQuestions = [
   }
 ];
 
+function extractJson(str: string): string | null {
+    const match = str.match(/\{[\s\S]*\}/);
+    return match ? match[0] : null;
+}
+
 export async function GET() {
   // First, test the API key is working
   try {
@@ -53,32 +58,43 @@ export async function GET() {
 
     // If API key is valid, try to generate a question
     const completion = await openai.chat.completions.create({
-      model: "deepseek/deepseek-r1:free",
+      model: "nousresearch/nous-hermes-2-mixtral-8x7b-dpo",
       messages: [
         {
           role: "system",
-          content: "You are a helpful assistant that generates extremely hard, complex coding interview questions, similar to the hardest problems on LeetCode. Only generate problems that require advanced algorithms, data structures, or deep problem-solving skills. Do not generate simple or medium problems. Respond with a valid JSON object containing: title, description, and example (with input and output)."
+          content: "You are a JSON generator. You will be given a task and you will respond with ONLY a valid JSON object that fulfills the task. Do not include any other text, explanations, or markdown."
         },
         {
-          role: "user",
-          content: "Generate a very hard, complex LeetCode-style coding question. Example response format: {\"title\":\"Question Title\",\"description\":\"Problem description\",\"example\":{\"input\":\"example input\",\"output\":\"example output\"}}"
+            "role": "user",
+            "content": "Generate one very hard, LeetCode-style coding problem. The output MUST be a JSON object with three keys: \"title\" (string), \"description\" (string), and \"example\" (an object with \"input\" and \"output\" string keys)."
         }
       ],
       temperature: 0.7,
-      max_tokens: 500,
+      max_tokens: 1000,
       response_format: { type: "json_object" }
     });
 
-    const content = completion.choices[0]?.message?.content;
-    console.log('Generated Content:', content);
+    const rawContent = completion.choices[0]?.message?.content;
+    console.log('Generated Content:', rawContent);
+
+    if (!rawContent) {
+        throw new Error('No content received from AI');
+    }
+
+    const jsonContent = extractJson(rawContent);
+
+    if (!jsonContent) {
+        throw new Error('No JSON object found in AI response');
+    }
 
     // Try to parse the response
     try {
-      const question = JSON.parse(content || '{}');
+      const question = JSON.parse(jsonContent);
       return NextResponse.json({ question });
     } catch (parseError) {
-      console.error('Failed to parse LLM response:', parseError);
-      throw new Error('Invalid response format from AI');
+      console.error('Failed to parse extracted JSON:', parseError);
+      console.error('Original content was:', rawContent);
+      throw new Error('Invalid JSON format from AI');
     }
 
   } catch (error) {

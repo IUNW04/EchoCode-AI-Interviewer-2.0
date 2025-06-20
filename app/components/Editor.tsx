@@ -7,14 +7,16 @@ interface EditorProps {
   language?: string;
   height?: string | number;
   className?: string;
+  isReadOnly?: boolean;
 }
 
 export default function Editor({ 
   code, 
   onCodeChange, 
   language = 'javascript',
-  height = '600px',
-  className = ''
+  height = '100%',
+  className = '',
+  isReadOnly = false
 }: EditorProps) {
   return (
     <div className={`rounded-lg overflow-hidden h-full ${className}`}>
@@ -59,6 +61,7 @@ export default function Editor({
           monaco.editor.setTheme('navy-theme');
         }}
         options={{
+          readOnly: isReadOnly,
           // Display
           minimap: { enabled: false },
           fontSize: 14,
