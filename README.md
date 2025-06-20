@@ -1,4 +1,4 @@
-# CodeEcho AI
+# EchoCode AI
 
 An AI-powered coding interview simulator that replicates real FAANG-style technical interviews with voice-based interaction and real-time code observation.
 
